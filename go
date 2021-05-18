@@ -2,9 +2,15 @@ set -e
 
 mkdir -p new
 ../tools/acme -o new/jsw1 -r jsw1.txt --vicelabels jsw1.sym jsw1.a
+../tools/acme -o new/jsw1.5 -r jsw1.5.txt --vicelabels jsw1.5.sym jsw1.5.a
+
 sort -o jsw1.tmp jsw1.sym
 uniq jsw1.tmp jsw1.sym
 rm jsw1.tmp
+
+sort -o jsw1.5.tmp jsw1.5.sym
+uniq jsw1.5.tmp jsw1.5.sym
+rm jsw1.5.tmp
 
 run="1"
 skipdiff="0"
@@ -21,6 +27,7 @@ done
 if [ $skipdiff != "1" ]; then
     echo Checking diffs...
     diff new/jsw1 ./original/jsw1
+    diff new/jsw1.5 ./original/jsw1.5
 else
     echo Skipping diffs...
 fi
@@ -37,6 +44,11 @@ myfilesize=$(stat -f %z "new/JSW1")
 myfilesizehex=$(printf '%x\n' $myfilesize)
 echo "$.JSW1 00001100 00001F90 $myfilesizehex L" >new/JSW1.INF
 
+# Create INF file for JSW1.5
+myfilesize=$(stat -f %z "new/JSW1.5")
+myfilesizehex=$(printf '%x\n' $myfilesize)
+echo "$.JSW1.5 00004700 00004D00 $myfilesizehex L" >new/JSW1.5.INF
+
 
 # grep jsw1.sym -e 'allFree' | sed 's/^.*\([0-9a-f][0-9a-f][0-9a-f][0-9a-f]\).*/\1/' | awk '{printf "%d bytes free\n",(("0x" $1) + 0)}'
 
@@ -44,7 +56,7 @@ echo
 # Create new SSD file with the appropriate files
 ../tools/bbcim -new -type ADFS JSW.ssd
 ../tools/bbcim -boot JSW.ssd EXEC
-../tools/bbcim -a JSW.ssd new/!BOOT new/jsw1
+../tools/bbcim -a JSW.ssd new/!BOOT new/jetset new/jsw new/jsw1 new/jsw1.5
 
 echo
 

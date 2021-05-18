@@ -1,4 +1,4 @@
-; $.JSW1   000b00 001f90 002500
+; $.JSW1   001100 001f90
 
 ; variables
 life_y                                              = $4d
@@ -172,20 +172,7 @@ exit_rooms                                          = $0aa4
 items_tile_address_low                              = $0aa8
 items_tile_address_high                             = $0ab4
 screen_address_lookup_table                         = $0ac0
-arrow_sprite_address_low                            = $0eb0
-fill_space_loop                                     = $1031
-background_initialisation_routine_address_low       = $11b2
-background_initialisation_routine_address_high      = $11b3
-plot_sprite_outer_loop                              = $150f
-plot_sprite_address_low                             = $1513
-plot_sprite_address_high                            = $1514
-sprite_address_for_copy_and_low                     = $1664
-sprite_address_for_copy_and_high                    = $1665
-sprite_address_for_copy_ora_low                     = $166c
-sprite_address_for_copy_ora_high                    = $166d
-sprite_address_for_restore_lda_low                  = $1673
-sprite_address_for_restore_lda_high                 = $1674
-offsets_two                                         = $1a03
+
 tile_table                                          = $6e00
 space_sprite                                        = $7000
 player_background_buffer                            = $7020
@@ -197,856 +184,16 @@ OSWRCH                                              = $ffee
 OSWORD                                              = $fff1
 OSBYTE                                              = $fff4
 
-*= $0b00
+to_initialise_arrows                                = $0b1b
+to_initialise_room_background_tiles_and_title       = $0b18
+to_write_status_line                                = $0b00
+to_handle_rope_time_and_events                      = $0b03
+to_mark_enemies_that_overlap_player                 = $0b0c
+to_update_arrows                                    = $0b0f
+to_play_sound_number_a                              = $0b27
+to_collect_item                                     = $0b06
 
-to_write_status_line
-    jmp write_status_line                           ;
-
-to_handle_rope_time_and_events
-    jmp handle_rope_time_and_events                 ;
-
-to_collect_item
-    jmp collect_item                                ;
-
-to_reset_game                                       ; [unused]
-    jmp reset_game                                  ;
-
-to_mark_enemies_that_overlap_player
-    jmp mark_enemies_that_overlap_player            ;
-
-to_update_arrows
-    jmp update_arrows                               ;
-
-to_to_calculate_screen_address                      ; [unused]
-    jmp to_calculate_screen_address                 ;
-
-to_update_lives
-    jmp update_lives                                ;
-
-to_initialise_room_background_tiles_and_title
-    jmp initialise_room_background_tiles_and_title  ;
-
-to_initialise_arrows
-    jsr initialise_arrows                           ;
-
-to_handle_room_tweaks_on_entry                      ; [unused]
-    jmp handle_room_tweaks_on_entry                 ;
-
-to_real_entry_point
-    jmp real_entry_point                            ;
-
-to_game_over                                        ; [unused]
-    jmp game_over                                   ;
-
-to_play_sound_number_a
-    jmp play_sound_number_a                         ;
-
-handle_rope_time_and_events
-    lda room_contains_rope                          ;
-    beq no_rope                                     ;
-    jsr unplot_rope                                 ;
-    lda #$80                                        ;
-    sta rope_end_x                                  ;
-    lda #0                                          ;
-    sta rope_pixel_touched                          ;
-    sta rope_end_y                                  ;
-    ldx rope_position                               ;
-    lda #$1f                                        ;
-    sta rope_pixel_to_consider                      ;
-update_rope_pixels_loop
-    jsr update_rope_pixel                           ;
-    dec rope_pixel_to_consider                      ;
-    bne update_rope_pixels_loop                     ;
-    lda rope_velocity_relative_to_centre            ;
-    asl                                             ;
-    clc                                             ;
-    adc rope_position                               ;
-    tay                                             ;
-    cmp #$d2                                        ;
-    bne rope_didnt_change_sides                     ;
-    lda rope_position_relative_to_centre            ;
-    eor #$ff                                        ;
-    sta rope_position_relative_to_centre            ;
-    lda #8                                          ;
-rope_didnt_change_sides
-    cmp #8                                          ;
-    bne rope_didnt_reach_end                        ;
-    lda rope_velocity_relative_to_centre            ;
-    eor #$ff                                        ;
-    sta rope_velocity_relative_to_centre            ;
-    inc rope_velocity_relative_to_centre            ;
-rope_didnt_reach_end
-    sty rope_position                               ;
-    jsr check_for_player_contact_with_rope          ;
-no_rope
-    jsr handle_time                                 ;
-    jmp handle_endgame                              ;
-
-update_rope_pixel
-    stx rope_pixel_position                         ;
-    txa                                             ;
-    bpl skip_floor1                                 ;
-    ldx #$26                                        ;
-    cmp #$f0                                        ;
-    bcs skip_floor1                                 ;
-    ldx #$27                                        ;
-skip_floor1
-    lda rope_x_delta_table,X                        ;
-    cmp rope_position_relative_to_centre            ;
-    bcc skip_inversion1                             ;
-    eor #$ff                                        ;
-skip_inversion1
-    adc rope_end_x                                  ;
-    sta rope_end_x                                  ;
-    lda rope_end_y                                  ;
-    clc                                             ;
-    adc rope_y_delta_table,X                        ;
-    sta rope_end_y                                  ;
-    ldy rope_pixel_to_consider                      ;
-    sta rope_pixels_y,Y                             ;
-    tax                                             ;
-    lda rope_end_x                                  ;
-    sta rope_pixels_x,Y                             ;
-    jsr plot_rope_pixel                             ;
-    lda screen_address_low                          ;
-    ldx rope_pixel_to_consider                      ;
-    sta rope_pixels_screen_address_low_table,X      ;
-    lda screen_address_high                         ;
-    sta rope_pixels_screen_address_high_table,X     ;
-    ldx rope_pixel_position                         ;
-    inx                                             ;
-    rts                                             ;
-
-plot_rope_pixel
-    sta rope_pixel_x                                ;
-    jsr to_calculate_screen_address                 ;
-    ldy #0                                          ;
-    lda (screen_address),Y                          ;
-    beq $0bc1                                       ; rope_not_touching_player ; Bug: triggers for enemies too (e.g. Cold Store)
-    lda rope_pixel_to_consider                      ;
-    sta rope_pixel_touched                          ;
-rope_not_touching_player
-    lda rope_pixel_x                                ;
-    and #3                                          ;
-    tax                                             ;
-    lda rope_pixel_values_table,X                   ;
-    sta (screen_address),Y                          ;
-    rts                                             ;
-
-rope_pixel_values_table
-    !byte $88, $44, $22, $11
-
-unplot_rope
-    ldx #$1f                                        ;
-    ldy #0                                          ;
-unplot_rope_loop
-    lda rope_pixels_screen_address_low_table,X      ;
-    sta rope_pixels_screen_address_low              ;
-    lda rope_pixels_screen_address_high_table,X     ;
-    sta rope_pixels_screen_address_high             ;
-    lda #0                                          ;
-    sta (rope_pixels_screen_address),Y              ;
-    dex                                             ;
-    bpl unplot_rope_loop                            ;
-    rts                                             ;
-
-check_for_player_contact_with_rope
-    ldx player_rope_pixel                           ;
-    bne player_already_on_rope                      ;
-    lda rope_pixel_touched                          ;
-    beq leave1                                      ;
-    ldx #0                                          ;
-    stx player_entered_room_falling_too_far         ;
-    lda player_y_in_enemies                         ;
-check_y_loop
-    inx                                             ;
-    cmp rope_pixels_y,X                             ;
-    bcc check_y_loop                                ;
-    cpx #2                                          ;
-    bcc remove_player_from_rope                     ;
-    stx player_rope_pixel                           ;
-player_already_on_rope
-    lda player_jump_timer                           ;
-    cmp #$0e                                        ;
-    bcs remove_player_from_rope                     ;
-    lda #0                                          ;
-    sta player_is_jumping                           ;
-    sta player_jump_timer                           ;
-    lda rope_pixels_x,X                             ;
-    sec                                             ;
-    sbc #4                                          ;
-    and #$fe                                        ;
-    sta player_x_in_enemies                         ;
-    lda rope_pixels_y,X                             ;
-    sec                                             ;
-    sbc #6                                          ;
-    bpl skip_floor2                                 ;
-    lda #$c0                                        ;
-skip_floor2
-    sta player_y_in_enemies                         ;
-    lda player_horizontal_speed                     ;
-    beq leave1                                      ;
-    lda rope_position_relative_to_centre            ;
-    eor rope_velocity_relative_to_centre            ;
-    inx                                             ;
-    eor player_horizontal_speed                     ;
-    bpl player_moving_up_rope                       ;
-player_moving_down_rope
-    dex                                             ;
-    dex                                             ;
-player_moving_up_rope
-    stx player_rope_pixel                           ;
-    cpx #3                                          ;
-    bcs leave1                                      ;
-    lda enemies_y                                   ; player_y_in_enemies ; Make player fall off bottom of rope
-    adc #4                                          ;
-    sta player_y_in_enemies                         ;
-remove_player_from_rope
-    lda player_y_in_enemies                         ;
-    and #$fc                                        ;
-    sta player_y_in_enemies                         ;
-    lda #0                                          ;
-    sta player_rope_pixel                           ;
-    rts                                             ;
-leave1
-    rts                                             ;
-
-write_status_line
-    ldx #$ff                                        ;
-write_items_collected_loop
-    inx                                             ;
-    lda items_collected_string,X                    ;
-    jsr OSWRCH                                      ;
-    cmp #4                                          ;
-    bne write_items_collected_loop                  ;
-    jsr write_items_collected                       ;
-    jmp write_time                                  ;
-
-items_collected_string
-    !byte $1a, $1f, $00, $14, $49, $74, $65, $6d, $73, $20, $63, $6f, $6c, $6c, $65, $63 ; Restore default window, TAB($00, $14)
-    !byte $74, $65, $64, $20, $30, $30, $30, $20, $54, $69, $6d, $65, $20, $20, $37, $3a ; "Items collected 000 Time   7:00pm"
-    !byte $30, $30, $70, $6d, $1c, $00, $14, $1f, $00, $04 ; Define text window x:($00,$1f) y:($04,$14)
-
-collect_item
-    lda #$18                                        ; sound_3
-    jsr play_sound_number_a                         ; Play sound for collecting item
-    inc items_collected_low                         ;
-    lda items_collected_low                         ;
-    cmp #$0a                                        ;
-    bcc write_items_collected                       ;
-    inc items_collected_high                        ;
-    lda #0                                          ;
-    sta items_collected_low                         ;
-    lda items_collected_high                        ;
-    cmp #8                                          ;
-    bcc write_items_collected                       ;
-    inc house_clear                                 ; 80 items needed to clear house
-write_items_collected
-    ldx #$11                                        ;
-    ldy items_collected_high                        ;
-    jsr write_digit_y_at_status_line_column_x       ;
-    lda items_collected_low                         ;
-    jsr write_digit_a                               ;
-    rts                                             ;
-
-items_collected_low
-    !byte $00
-items_collected_high
-    !byte $00
-
-write_digit_y_at_status_line_column_x
-    lda #$1f                                        ;
-    jsr OSWRCH                                      ;
-    txa                                             ;
-    jsr OSWRCH                                      ;
-    lda #$14                                        ;
-    jsr OSWRCH                                      ;
-    tya                                             ;
-write_digit_a
-    clc                                             ;
-    adc #$30                                        ; "0"
-    jsr OSWRCH                                      ;
-    rts                                             ;
-
-handle_time
-    dec game_timer                                  ;
-    bne leave2                                      ;
-    inc time_fraction                               ;
-    lda time_fraction                               ;
-    cmp #3                                          ;
-    bne leave2                                      ;
-    ldy #0                                          ;
-    sty time_fraction                               ;
-    inc minutes_low                                 ;
-    lda minutes_low                                 ;
-    cmp #$0a                                        ;
-    bcc write_time                                  ;
-    sty minutes_low                                 ;
-    inc minutes_high                                ;
-    lda minutes_high                                ;
-    cmp #6                                          ;
-    bcc write_time                                  ;
-    sty minutes_high                                ;
-    inc hours_low                                   ;
-    lda hours_low                                   ;
-    cmp #$0a                                        ;
-    bcc $0d13                                       ;
-    sty hours_low                                   ;
-    lda #1                                          ;
-    sta hours_high                                  ;
-    lda hours_low                                   ;
-    cmp #2                                          ;
-    bne write_time                                  ;
-    lda hours_high                                  ;
-    bmi write_time                                  ;
-    inc out_of_time                                 ;
-    inc player_killed                               ;
-write_time
-    ldx #$19                                        ;
-    ldy hours_high                                  ;
-    jsr write_digit_y_at_status_line_column_x       ;
-    lda hours_low                                   ;
-    jsr write_digit_a                               ;
-    lda #$3a                                        ; ":"
-    jsr OSWRCH                                      ;
-    lda minutes_high                                ;
-    jsr write_digit_a                               ;
-    lda minutes_low                                 ;
-    jsr write_digit_a                               ;
-leave2
-    rts                                             ;
-
-minutes_low
-    !byte $00
-minutes_high
-    !byte $00
-hours_low
-    !byte $07
-hours_high
-    !byte $f0
-time_fraction
-    !byte $00
-
-reset_game
-    lda #0                                          ;
-    sta time_fraction                               ;
-    sta player_entered_room_falling_too_far         ;
-    sta items_collected_low                         ;
-    sta items_collected_high                        ;
-    sta minutes_low                                 ;
-    sta minutes_high                                ;
-    sta house_clear                                 ;
-    sta out_of_time                                 ;
-    sta player_is_jumping                           ;
-    sta player_jump_timer                           ;
-    sta swimming_pool_item_collected                ;
-    lda #$f0                                        ;
-    sta hours_high                                  ;
-    lda #7                                          ; Game starts at 7:00pm ;
-    sta hours_low                                   ;
-    lda #7                                          ; Player starts with 7 lives ;
-    sta player_lives                                ;
-    lda #$68                                        ;
-    sta player_y_in_enemies                         ;
-    lda #$a8                                        ;
-    sta player_x_in_enemies                         ;
-    lda #$15                                        ; Player starts in "The Bathroom" ;
-    sta player_room                                 ;
-    jsr to_reset_items                              ;
-    rts                                             ;
-
-handle_endgame
-    lda player_room                                 ;
-    cmp #$13                                        ; Master Bedroom
-    bne not_master_bedroom                          ;
-    lda player_y_in_enemies                         ;
-    cmp #$67                                        ;
-    bcs below_maria                                 ;
-    ldx #$0a                                        ;
-    cmp #$60                                        ;
-    bcs set_maria_offset                            ;
-    ldx #$0b                                        ; Make Maria raise her arm when Willy in line of sight ;
-    bne set_maria_offset                            ;
-below_maria
-    lda $0a0a                                       ; enemies_unpacked_sprite_offset + 1
-    and #9                                          ;
-    eor #1                                          ;
-    sta $0a0a                                       ; enemies_unpacked_sprite_offset + 1
-    tax                                             ;
-set_maria_offset
-    stx $0a0a                                       ; enemies_unpacked_sprite_offset + 1
-not_master_bedroom
-    cmp #$15                                        ; The Bathroom
-    bne not_the_bathroom                            ;
-    lda game_timer                                  ;
-    and #1                                          ;
-    bne not_the_bathroom                            ;
-    lda $0a0b                                       ; enemies_unpacked_sprite_offset + 2
-    eor #1                                          ; Make the toilet flap its lid ;
-    sta $0a0b                                       ; enemies_unpacked_sprite_offset + 2
-not_the_bathroom
-    lda house_clear                                 ;
-    beq leave3                                      ; Has the player collected all the items?
-    bmi $0dd9                                       ; dash_for_toilet ; If so, are they dashing for the toilet?
-check_for_pillow
-    lda player_room                                 ;
-    cmp #$13                                        ; Master Bedroom
-    bne leave3                                      ;
-    lda #0                                          ;
-    sta $0a49                                       ; enemies_colour + 1 ; Hide Maria if all items have been collected
-    lda player_x_in_enemies                         ;
-    cmp #$18                                        ;
-    bne leave3                                      ; Is the player about to touch the pillow?
-    lda #$ff                                        ; If so, make them dash for the toilet ;
-    sta house_clear                                 ;
-    rts                                             ;
-dash_for_toilet
-    lda #2                                          ;
-    sta player_horizontal_speed                     ; Make the player move right.
-    lda #0                                          ;
-    sta player_started_jump                         ;
-    lda player_room                                 ;
-    cmp #$14                                        ; Top Landing ; Is the player in Top Landing?
-    bne not_top_landing                             ;
-    lda player_x_in_enemies                         ;
-    cmp #$88                                        ; Jump over hole ;
-    beq force_jump                                  ;
-    cmp #$b0                                        ; Jump over enemy ;
-    bne leave3                                      ;
-force_jump
-    inc player_started_jump                         ;
-leave3
-    rts                                             ;
-not_top_landing
-    bcc leave4                                      ; Is the player in The Bathroom?
-    lda player_x_in_enemies                         ;
-    cmp #$d8                                        ;
-    bcc leave4                                      ; Is the player about to touch the toilet?
-    lda #$0a                                        ;
-    ora $0a0b                                       ; enemies_unpacked_sprite_offset + 2
-    sta $0a0b                                       ; enemies_unpacked_sprite_offset + 2 ; Set the toilet to contain the player's legs.
-    lda #2                                          ;
-    sta player_not_plotted                          ; Set the player to be unplotted, but not plotted
-leave4
-    rts                                             ;
-
-mark_enemies_that_overlap_player                    ; Called with tile_address1 of the player
-    ldy #$20                                        ;
-    jsr check_tiles_for_enemy                       ;
-    ldy #$40                                        ;
-    jsr check_tiles_for_enemy                       ;
-    lda player_y_in_enemies                         ;
-    and #7                                          ;
-    beq leave5                                      ;
-    ldy #$60                                        ;
-check_tiles_for_enemy
-    jsr check_tile_for_enemy                        ;
-    iny                                             ;
-check_tile_for_enemy
-    lda (tile_address1),Y                           ;
-    bpl leave5                                      ; Is there an enemy in this tile?
-    cmp #$8a                                        ;
-    bcs leave5                                      ;
-    and #$0f                                        ;
-    tax                                             ;
-    lda #2                                          ;
-    sta enemies_need_replot,X                       ; Set enemy to not need unplotting, killing player
-leave5
-    rts                                             ;
-
-update_arrows
-    ldy #1                                          ;
-update_arrows_loop
-    ldx arrow_timer,Y                               ;
-    bmi update_active_arrow                         ;
-    beq consider_next_arrow1                        ;
-    lda game_timer                                  ;
-    and #1                                          ;
-    bne consider_next_arrow1                        ;
-    dex                                             ;
-    bne no_new_arrow                                ;
-    lda #$ff                                        ;
-    sta arrow_timer,Y                               ;
-    lda arrow_initial_x_positions,Y                 ;
-    sta arrow_x,Y                                   ;
-    jmp arrow_still_active                          ;
-no_new_arrow
-    txa                                             ;
-    sta arrow_timer,Y                               ;
-    cmp #3                                          ;
-    bne consider_next_arrow1                        ;
-    lda #$20                                        ; sound_4
-    jsr play_sound_number_a                         ; Play sound for arrow firing
-consider_next_arrow1
-    dey                                             ;
-    bpl update_arrows_loop                          ;
-    rts                                             ;
-
-update_active_arrow
-    jsr plot_arrow                                  ; Unplot arrow
-    lda arrow_x,Y                                   ;
-    clc                                             ;
-    adc arrow_speeds,Y                              ;
-    sta arrow_x,Y                                   ;
-    cmp arrow_initial_x_positions,Y                 ;
-    bne arrow_still_active                          ;
-    lda #$7f                                        ;
-    sta arrow_timer,Y                               ;
-    bpl consider_next_arrow1                        ;
-arrow_still_active
-    jsr plot_arrow                                  ;
-    ldx #8                                          ; Use enemy slot 8 for arrow ;
-    jsr to_calculate_tile_address_for_enemy_X       ;
-    ldy #$20                                        ;
-    lda (tile_address1),Y                           ;
-    ldy arrow                                       ;
-    sta arrow_active,Y                              ;
-    jmp consider_next_arrow1                        ;
-
-plot_arrow
-    sty arrow                                       ;
-    lda arrow_x,Y                                   ;
-    sta $0a23                                       ; enemies_x + 8
-    ldx arrow_y,Y                                   ;
-    stx $0a2c                                       ; enemies_y + 8
-    jsr to_calculate_screen_address                 ;
-    lda arrow_sprite_offsets,Y                      ;
-    sta arrow_sprite_address_low                    ;
-    lda arrow_active,Y                              ;
-    bmi unplot_arrow                                ;
-    ldy #$0f                                        ;
-plot_arrow_loop
-    lda $7060,Y                                     ; $7060 = sprite_arrow_left
-;     actually LDA arrow_sprite_address,Y
-    eor (screen_address),Y                          ;
-    sta (screen_address),Y                          ;
-    dey                                             ;
-    bne plot_arrow_loop                             ;
-    ldy arrow                                       ;
-    rts                                             ;
-unplot_arrow
-    lda #0                                          ;
-    sta arrow_active,Y                              ;
-    ldy #$0f                                        ;
-wipe_arrow_loop
-    sta (screen_address),Y                          ;
-    dey                                             ;
-    bne wipe_arrow_loop                             ;
-    ldy arrow                                       ;
-    rts                                             ;
-
-arrow_sprite_offsets
-    !byte $70, $60
-
-arrow_initial_x_positions
-    !byte $00, $f8
-
-arrow_speeds
-    !byte $08, $f8
-
-arrow_x
-    !byte $00, $00
-
-arrow_active
-    !byte $00, $00
-
-update_lives
-    lda game_timer                                  ;
-    and #3                                          ;
-    bne leave6                                      ;
-    lda life_sprite_address_low                     ;
-    clc                                             ;
-    adc #$40                                        ;
-    sta life_sprite_address_low                     ;
-    sta sprite_address_low2                         ;
-    lda #$72                                        ; $7200 = player_sprite_right_frame_0
-    sta sprite_address_high2                        ;
-    lda #3                                          ;
-    sta life_colour                                 ;
-    lda #$f0                                        ;
-    sta life_x                                      ;
-    lda player_lives                                ;
-    beq leave6                                      ;
-    sta lives_remaining_to_plot                     ;
-update_lives_loop
-    ldx life_colour                                 ;
-    dex                                             ;
-    bne skip_floor3                                 ;
-    ldx #3                                          ;
-skip_floor3
-    stx life_colour                                 ;
-    lda life_colours,X                              ;
-    sta sprite_colour                               ;
-    lda life_x                                      ;
-    clc                                             ;
-    adc #$10                                        ;
-    sta life_x                                      ;
-    ldx life_y                                      ;
-    jsr to_plot_sprite                              ;
-    dec lives_remaining_to_plot                     ;
-    bne update_lives_loop                           ;
-leave6
-    rts                                             ;
-
-life_sprite_address_low
-    !byte $00
-
-life_colours
-    ;      KK,  RR,  YY,  WW
-    !byte $00, $0f, $f0, $ff
-
-initialise_room_background_tiles_and_title
-    ldy #4                                          ; For each of five tiles, ;
-set_tile_colours_loop
-    ldx #2                                          ;
-    jsr to_get_x_bits_of_room_data                  ; Get two bits of room data for each tile colour
-    sta background_tiles_colours,Y                  ;
-    dey                                             ;
-    bpl set_tile_colours_loop                       ;
-    ldy #5                                          ; For each of six tiles, ;
-set_tile_sprites_loop
-    ldx #8                                          ; Get eight bits of room data for each tile sprite ;
-    jsr to_get_x_bits_of_room_data                  ;
-    sta background_tiles_sprites,Y                  ;
-    dey                                             ;
-    bpl set_tile_sprites_loop                       ;
-    ldy #3                                          ; For each of four screen colours, ;
-set_screen_colours_loop
-    ldx #3                                          ;
-    jsr to_get_x_bits_of_room_data                  ; Get three bits of room data for each screen colour
-    jsr set_colour_y_to_a                           ;
-    dey                                             ;
-    bpl set_screen_colours_loop                     ;
-    lda #1                                          ; First word is uppercase ;
-    sta start_of_word                               ;
-    lda #$1f                                        ;
-    jsr OSWRCH                                      ;
-    ldx #4                                          ; Get four bits of room data for position of room title ;
-    jsr to_get_x_bits_of_room_data                  ;
-    jsr OSWRCH                                      ;
-    lda #$10                                        ;
-    jsr OSWRCH                                      ; TAB to start of room title
-write_room_title_loop
-    ldx #5                                          ; Get five bits of room data for each character of title ;
-    jsr to_get_x_bits_of_room_data                  ;
-    cmp #$1b                                        ;
-    bcs is_1b_1c_1d_1e_or_1f                        ;
-    jsr write_letter                                ; $00 to $1a writes "a" to "z"
-    jmp write_room_title_loop                       ;
-is_1b_1c_1d_1e_or_1f
-    bne is_1c_1d_1e_or_1f                           ;
-    lda #$27                                        ; "'" ; $1b writes "'"
-    jsr OSWRCH                                      ;
-    jmp write_room_title_loop                       ;
-is_1c_1d_1e_or_1f
-    cmp #$1d                                        ;
-    beq is_1d                                       ;
-    bcs is_1e_or_1f                                 ;
-    rts                                             ; $1c ends room title ;
-is_1e_or_1f
-    cmp #$1e                                        ;
-    bne is_1f                                       ;
-    inc buffer_offset                               ; start_of_word ; $1e writes " ", resetting case
-is_1d
-    lda #$20                                        ; " " ; $1d writes " ", keeping lower case
-    jsr OSWRCH                                      ;
-    jmp write_room_title_loop                       ;
-is_1f
-    lda #$13                                        ; "t" ; $1f writes "The"
-    jsr write_letter                                ;
-    lda #$68                                        ; "h"
-    jsr OSWRCH                                      ;
-    lda #$65                                        ; "e"
-    jsr OSWRCH                                      ;
-    jmp write_room_title_loop                       ;
-
-write_letter
-    clc                                             ;
-    adc #$61                                        ; "a"
-    ldy start_of_word                               ;
-    beq lower_case                                  ;
-    and #$df                                        ;
-    ldx #0                                          ;
-    stx start_of_word                               ;
-lower_case
-    jsr OSWRCH                                      ;
-    rts                                             ;
-
-set_colour_y_to_a
-    tax                                             ;
-    lda #$13                                        ;
-    jsr OSWRCH                                      ;
-    tya                                             ;
-    jsr OSWRCH                                      ;
-    txa                                             ;
-    jsr OSWRCH                                      ;
-    lda #0                                          ;
-    jsr OSWRCH                                      ;
-    jsr OSWRCH                                      ;
-    jsr OSWRCH                                      ;
-    rts                                             ;
-
-initialise_arrows
-    ldy #1                                          ; For each of two arrows, ;
-initialise_arrows_loop
-    lda #0                                          ;
-    sta arrow_active,Y                              ;
-    sta arrow_timer,Y                               ;
-    ldx #1                                          ; Get one bit of room data for presence of arrow ;
-    jsr to_get_x_bits_of_room_data                  ;
-    tax                                             ;
-    beq consider_next_arrow2                        ; If arrow present,
-    ldx #4                                          ; Get four bits of room data for arrow_y ;
-    jsr to_get_x_bits_of_room_data                  ;
-    tax                                             ;
-    beq consider_next_arrow2                        ;
-    asl                                             ;
-    asl                                             ;
-    asl                                             ;
-    eor #$78                                        ;
-    sta arrow_y,Y                                   ;
-    ldx #3                                          ; Get three bits of room data for arrow timing ;
-    jsr to_get_x_bits_of_room_data                  ;
-    tax                                             ;
-    lda arrow_timers_table,X                        ;
-    sta arrow_timer,Y                               ;
-    sta arrow_x,Y                                   ;
-    sta arrow_active,Y                              ;
-consider_next_arrow2
-    dey                                             ;
-    bpl initialise_arrows_loop                      ;
-    rts                                             ;
-
-arrow_timers_table
-;     0  1  2  3  4
-    !byte $d0, $16, $1e, $26, $7f                   ; # Third value [unused]
-
-handle_room_tweaks_on_entry
-    lda #0                                          ;
-    ldy #$80                                        ;
-    ldx player_room                                 ;
-    cpx #$19                                        ; Swimming Pool
-    bne $102d                                       ; fill_space_sprite ; Is this the Swimming Pool?
-    lda swimming_pool_item_collected                ;
-    bne already_collected_item                      ;
-    inc swimming_pool_item_collected                ; If so, collect item on first visit
-    jsr collect_item                                ;
-already_collected_item
-    ldx #0                                          ;
-fill_enemy_with_water_loop
-    lda #$f0                                        ; Set background of enemy sprite to be colour 2 (cyan) ;
-    ora unpacked_enemy_sprites,X                    ;
-    sta unpacked_enemy_sprites,X                    ;
-    lda #$f0                                        ;
-    ora $7400,X                                     ; unpacked_enemy_sprites + $100
-    sta $7400,X                                     ; unpacked_enemy_sprites + $100
-    dex                                             ;
-    bne fill_enemy_with_water_loop                  ;
-    lda #$f0                                        ; Set background of space sprite (used to unplot enemy ;
-    ldy #1                                          ; after movement) to be the same. Use tile 1 for space, ;
-fill_space_sprite                                   ; so player can stand on swimming pool water.
-    sty space_tile                                  ;
-    ldx #$3f                                        ; Bug: fills half of player_background_buffer too ;
-fill_space_sprite_loop
-    sta space_sprite,X                              ;
-    dex                                             ;
-    bpl fill_space_loop                             ;
-    ldx #0                                          ;
-    lda player_room                                 ;
-    cmp #$1b                                        ; The Nightmare Room ; Is this The Nightmare Room?
-    bne not_nightmare_room                          ;
-    lda #$10                                        ;
-    sta $0a10                                       ; enemies_unpacked_sprite_offset + 7 ; If so, change left-most enemy to use Maria sprite.
-    lda #3                                          ; It is originally a pig, setting up the sprite for: ;
-    sta $0a07                                       ; enemies_sprite + 7
-    ldx #8                                          ; Use pig for player sprite. ;
-not_nightmare_room
-    stx enemies_unpacked_sprite_offset              ; player_unpacked_sprite_offset ; (otherwise use player)
-    rts                                             ;
-
-real_entry_point
-    jsr to_title_screen                             ;
-    jsr reset_game                                  ;
-new_life_loop
-    jsr to_initialise_room                          ;
-game_loop
-    lda #$13                                        ; Wait for Vertical Retrace ; Three v-syncs per game frame
-    jsr OSBYTE                                      ;
-    lda #$13                                        ; Wait for Vertical Retrace
-    jsr OSBYTE                                      ;
-    lda #$13                                        ; Wait for Vertical Retrace
-    jsr OSBYTE                                      ;
-    jsr to_update_lives                             ;
-    jsr to_update_game                              ;
-    jsr check_for_suicide                           ;
-    lda player_killed                               ;
-    beq game_loop                                   ;
-    lda player_lives                                ;
-    bpl new_life_loop                               ;
-game_over
-    ldx #0                                          ;
-write_clear_window_loop
-    lda clear_window_string,X                       ;
-    jsr OSWRCH                                      ;
-    inx                                             ;
-    cpx #$0a                                        ;
-    bne write_clear_window_loop                     ;
-    lda #0                                          ;
-    jsr $102d                                       ; fill_space_sprite ; Ensure space sprite is black
-    jsr to_animate_game_over_boot                   ;
-    ldx #0                                          ;
-    stx $10c6                                       ; game_over_string + 4
-game_over_loop
-    lda #$13                                        ; Wait for Vertical Retrace
-    jsr OSBYTE                                      ;
-    ldy #0                                          ;
-write_game_over_loop
-    lda game_over_string,Y                          ;
-    jsr OSWRCH                                      ;
-    iny                                             ;
-    cpy #$0f                                        ;
-    bne write_game_over_loop                        ;
-    inc $10c6                                       ; game_over_string + 4
-    bpl game_over_loop                              ;
-    jmp real_entry_point                            ;
-
-check_for_suicide
-    lda $ec                                         ; Internal key number of most recently pressed key
-    cmp #$70                                        ; SHIFT-ESCAPE
-    bne leave7                                      ;
-    pla                                             ; Remove check_for_suicide from stack ;
-    pla                                             ;
-    jmp real_entry_point                            ;
-leave7
-    rts                                             ;
-
-clear_window_string
-    !byte $18, $00, $00, $00, $02, $ff, $03, $ff, $03, $10 ; Define graphics window ($0000-$03ff, $03ff-$020A) ; clear graphics area
-
-game_over_string
-    !byte $1f, $0b, $08, $11, $00, $47, $61, $6d, $65, $09, $09, $4f, $76, $65, $72 ; TAB($0b, $08) ; COLOUR 0 ; "Game  Over"
-
-play_sound_number_a
-    stx tmp_x                                       ;
-    sty tmp_y                                       ;
-    clc                                             ;
-    adc #$80                                        ;
-    tax                                             ;
-    ldy #8                                          ; $0880 + A
-    lda #7                                          ; Generate a sound
-    jsr OSWORD                                      ;
-    ldx tmp_x                                       ;
-    ldy tmp_y                                       ;
-    rts                                             ;
-
-tmp_x
-    !byte $00
-tmp_y
-    !byte $00
-
-; [unused]
-    !byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-    !byte $00, $00, $00, $00, $00
+*= $1100
 
 to_reset_items
     jmp reset_items                                 ;
@@ -1156,6 +303,9 @@ calculate_routine_number_loop                       ; Reading two bits at a time
     sta background_initialisation_routine_address_low ;
     lda $11db,X                                     ; background_initialisation_routines_address_table + 1
     sta background_initialisation_routine_address_high ;
+
+background_initialisation_routine_address_low = * + 1
+background_initialisation_routine_address_high = * + 2
     jsr $1111                                       ;
 ;     actually JSR background_initialisation_routine_address
     jmp initialise_background_scenery_loop          ;
@@ -1323,7 +473,7 @@ skip_x_inversion
     sta triangle_length                             ;
     sec                                             ;
     sbc tile_y                                      ;
-    sta height1                                     ;
+    sta height2                                     ;
     bcs skip_y_inversion                            ;
     eor #$ff                                        ;
     adc #1                                          ;
@@ -1340,11 +490,12 @@ skip_y_inversion
     eor #$ff                                        ;
     adc #0                                          ;
     sta x_skip                                      ;
-    bmi $12f1                                       ;
+    bmi +                                           ;
     txa                                             ;
     eor #$ff                                        ;
     tax                                             ;
     inx                                             ;
++
     txa                                             ;
     clc                                             ;
     adc tile_x                                      ;
@@ -1355,7 +506,7 @@ add_triangle_of_tiles_loop
     lda row_length                                  ;
     sta length2                                     ;
     lda tile_y                                      ;
-    sta previous_y1                                 ;
+    sta previous_y2                                 ;
     lda #1                                          ; Add first and last tiles ;
     ldx #$80                                        ; Use previous direction ;
     jsr add_line_of_tiles                           ;
@@ -1370,7 +521,7 @@ add_triangle_of_tiles_loop
     bpl add_triangle_of_tiles_loop                  ;
     lda previous_x                                  ;
     sta tile_x                                      ;
-    lda previous_y2                                 ;
+    lda previous_y1                                 ;
     sta tile_y                                      ;
     lda triangle_direction                          ;
     sta direction                                   ;
@@ -1485,7 +636,7 @@ unpack_enemy_sprites
 unpack_enemy_sprites_loop
     ldx enemy_to_consider1                          ;
     cpx enemies_on_screen                           ;
-    beq $13ff                                       ; first_enemy ; If this isn't the first enemy,
+    beq first_enemy                                 ; If this isn't the first enemy,
     ldy enemies_on_screen                           ;
 check_if_enemy_already_unpacked                     ; has its sprite already been used?
     lda enemies_sprite,Y                            ;
@@ -1549,14 +700,16 @@ unpack_enemy_sprite_loop
     clc                                             ;
     adc #$20                                        ;
     sta sprite_address_low1                         ;
-    bcc $1458                                       ;
+    bcc +                                           ;
     inc sprite_address_high1                        ;
++
     lda unpacked_sprite_address_low                 ;
     clc                                             ;
     adc #$20                                        ;
     sta unpacked_sprite_address_low                 ;
-    bcc $1463                                       ;
+    bcc +                                           ;
     inc unpacked_sprite_address_high                ;
++
     rts                                             ;
 
 enemy_sprites_frames
@@ -1626,6 +779,8 @@ plot_sprite_group_loop
     ldy sprite_width                                ;
     sec                                             ;
 plot_sprite_loop
+plot_sprite_address_low = * + 1
+plot_sprite_address_high = * + 2
     lda $1111,X                                     ;
 ;     actually LDA plot_sprite_address,X
     and sprite_colour                               ;
@@ -1649,7 +804,7 @@ plot_sprite_skipping_first_column
     clc                                             ;
     adc #2                                          ;
     sta screen_address_high                         ;
-    bpl plot_sprite_outer_loop                      ;
+    bpl plot_sprite_group_loop                      ;
 leave10
     rts                                             ;
 
@@ -1828,22 +983,28 @@ plot_player_sprite_outer_loop
 plot_player_sprite_loop
 plot_player_sprite_mode
     bcc restore_background                          ;
-;     also     BCS $1672 ; restore_background
+;     also     BCS restore_background
 copy_background                                     ; If BCC, copy screen memory to buffer
     lda (screen_address),Y                          ;
+sprite_address_for_copy_and_low = * + 1
+sprite_address_for_copy_and_high = * + 2
     and $1111,X                                     ;
 ;     actually AND sprite_address,X
     sta player_background_buffer,X                  ;
     lda (screen_address),Y                          ;
+sprite_address_for_copy_ora_low = * + 1
+sprite_address_for_copy_ora_high = * + 2
     ora $1111,X                                     ;
 ;     actually ORA sprite_address,X                                 ; adding player sprite
     sta (screen_address),Y                          ;
     bcs continue_with_next_byte                     ;
 restore_background                                  ; If BCS, copy buffer to screen memory
+sprite_address_for_restore_lda_low = * + 1
+sprite_address_for_restore_lda_high = * + 2
     lda $1111,X                                     ;
 ;     actually LDA sprite_address,X
     eor #$ff                                        ;
-    and (sprite_address_low2),Y                     ; screen_address ; using player sprite as mask
+    and (screen_address_low),Y                      ; using player sprite as mask
     ora player_background_buffer,X                  ;
     sta (screen_address),Y                          ;
 continue_with_next_byte
@@ -1901,10 +1062,10 @@ check_for_jump
 
 update_game
     lda player_rope_pixel                           ;
-    bne $16d9                                       ; consider_keys ; Player can't jump when on the rope
+    bne consider_keys                               ; player can't jump when on the rope
     lda player_is_jumping                           ;
     ora player_jump_timer                           ;
-    bne $16dc                                       ; skip_keys ; Player can't start jump or move when jumping
+    bne skip_keys                                   ; Player can't start jump or move when jumping
 consider_keys
     jsr handle_player_keys                          ;
 skip_keys
@@ -1913,8 +1074,8 @@ skip_keys
     lda player_horizontal_speed                     ;
     beq player_isnt_moving                          ;
     cmp player_speed                                ;
-    beq $16f0                                       ; player_already_moving ; Is the player already facing in direction of move?
-    sta enemies_speed                               ; player_speed ; If not, make them face that direction, but don't move
+    beq player_already_moving                       ; Is the player already facing in direction of move?
+    sta player_speed                                ; If not, make them face that direction, but don't move
     bne player_isnt_moving                          ;
 player_already_moving
     clc                                             ;
@@ -2149,8 +1310,9 @@ calculate_tile_address_for_enemy_X
     lda enemies_y,X                                 ;
     sec                                             ;
     sbc #8                                          ;
-    bcs $18d4                                       ;
+    bcs +                                           ;
     dec tile_address_high1                          ;
++
     asl                                             ;
     asl                                             ;
     rol tile_address_high1                          ;
@@ -2277,7 +1439,7 @@ update_enemies_loop
     ldy direction_tile_offsets_one,X                ;
     lda space_tile                                  ;
     sta (tile_address1),Y                           ; direction_tile_tile_address ; Remove enemy from previously occupied tiles
-    ldy offsets_two,X                               ;
+    ldy direction_tile_offsets_two,X                ;
     sta (tile_address1),Y                           ;
     ldx enemy_to_consider2                          ;
 consider_next_enemy2
@@ -2335,7 +1497,7 @@ plot_enemy
 enemy_moving_down                                   ; If this enemy is moving down,
     ldx enemies_sprite,Y                            ;
     cpx #$21                                        ;
-    beq $1a4e                                       ; enemy_is_skull_mouth ; The skull mouth will be overwritten by the skull top
+    beq enemy_is_skull_mouth                        ; The skull mouth will be overwritten by the skull top
     sta item_state                                  ; previous_speed ; Otherwise,
     asl                                             ;
     asl                                             ;
@@ -2509,7 +1671,7 @@ check_rows_of_player_against_tile1
     ldy buffer_offset                               ; If this tile is an enemy or an item,
 check_rows_of_player_against_tile2                  ; for each row of the player within the tile,
     lda player_background_buffer,Y                  ;
-    beq $1b45                                       ; not_part_of_player_left ; is there part of the player there?
+    beq not_part_of_player_left                     ; is there part of the player there?
     jsr player_is_touching_tile                     ; If so, consider the interaction
 not_part_of_player_left
     dey                                             ;
@@ -2548,7 +1710,7 @@ player_is_touching_tile
     cmp #$4e                                        ;
     bcs tile_is_item                                ;
     cmp #2                                          ;
-    bne $1b84                                       ; not_bathroom_toilet ; Is this the bathroom toilet? (room $15, slot 2)
+    bne not_bathroom_toilet                         ; Is this the bathroom toilet? (room $15, slot 2)
     lda player_room                                 ;
     cmp #$15                                        ; The Bathroom
     beq leave_with_initial_x_and_y                  ; If so, it isn't deadly.
@@ -2691,8 +1853,8 @@ consider_conveyor_effect
     lda player_horizontal_speed                     ; Is the player moving?
     beq start_conveying_player                      ;
     cmp conveyor_direction                          ; If not, or they're moving in the conveyor's direction,
-start_conveying_player
     bne leave22                                     ;
+start_conveying_player
     lda conveyor_direction                          ; move them with the conveyor
     sta player_horizontal_speed                     ;
     sta player_conveyor_direction                   ; (preventing them from changing direction)
@@ -2781,8 +1943,8 @@ remove_collected_items_from_room_data
     ldx items_in_room_minus_one                     ;
     bmi leave24                                     ;
     lda #4                                          ;
-remove_collected_items_from_room_data_loop
     sta bit_for_item                                ;
+remove_collected_items_from_room_data_loop
     dec bit_for_item                                ;
     bpl skip_new_byte                               ;
     lda #7                                          ;
@@ -2879,9 +2041,10 @@ update_conveyor_loop
     tya                                             ;
     adc #6                                          ;
     tay                                             ;
-    bne $1daa                                       ;
+    bne +                                           ;
     inc screen_address_high                         ;
     clc                                             ;
++
     dec conveyor_sections_remaining_to_update       ;
     bne update_conveyor_loop                        ;
 leave25
@@ -2990,8 +2153,9 @@ prepare_left_conveyor_bytes_loop
 rotate_and_store_conveyor_byte
     clc                                             ;
     lda packed_byte2                                ;
-    bpl $1e51                                       ;
+    bpl +                                           ;
     sec                                             ;
++
     rol                                             ;
     sta packed_byte2                                ;
     jsr unpack_byte_of_sprite_data                  ;
@@ -3150,8 +2314,18 @@ room_data_address_high_table
 room_data
 room_01_data                                        ; (Watch Tower)
     !byte $f2, $20, $98, $a1, $c9, $ef, $60, $77, $3f, $62, $67, $fb, $6e, $aa, $81, $8c ; items: 4 (1111)
-    !byte $f8, $cb, $ae, $91, $78, $a0, $cc, $4a, $62, $c6, $82, $49, $26, $43, $66, $99 ; exits: left: $01, right: $01, up: $26, down: $05
-    !byte $b9, $71, $34, $ba, $4e, $96, $94, $16, $1d, $0a, $56, $1c, $79, $0a, $10, $21 ; conveyor: right, slope: /, rope: no
+    !byte $f8, $cb, $ae, $91, $78, $a0                                                   ; exits: left: $01, right: $01, up: $26, down: $05
+
+entry_point
+    ldx #$97                                        ;
+    ldy #$1f                                        ; *RUN JSW1.5
+    jsr $fff7                                       ;
+    !text "R.JSW1.5",$0d                            ;
+; This 'entry_point' routine is (erroneously?) in place of the Watch Tower definition bytes from the tape version:
+;
+;    !byte $cc, $4a, $62, $c6, $82, $49, $26, $43, $66, $99, $b9, $71, $34, $ba, $4e, $96
+
+    !byte $94, $16, $1d, $0a, $56, $1c, $79, $0a, $10, $21 ; conveyor: right, slope: /, rope: no
     !byte $0a, $5d, $56, $56, $6c, $d8, $f4, $47, $b1, $4f, $9d, $91, $89, $35, $fd, $55 ; tiles: $db (2), $dc (3), $88 (3), $df (1), $dd (2), $e0
     !byte $00                                       ; screen colours: 4 5 3 7
                                                     ; title tab 10, text "Watch Tower"
@@ -5246,6 +4420,14 @@ room_00_data                                        ; (Game Over screen)
                                                     ; $02 (1) @ (15,14), range (15,15), moving d 0
                                                     ; $02 (3) @ (15,12), range (0,0), moving l 0
                                                     ; $01 (2) @ (15,0), range (0,0), moving r 2
+
+    ; ***********************************************************************************
+    ; From bbcgames JSW1 binary
+;entry_point
+;    ldx #$97
+;    ldy #$1f
+;    jsr $fff7
+;    !text "R.JSW1.5",$0d
 
 ; [unused]
     !byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
