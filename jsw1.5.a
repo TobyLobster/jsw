@@ -9,6 +9,43 @@ event_interrupt_vector_high                         = $0221
 os_row_multiplication_table_low                     = $e0
 os_row_multiplication_table_high                    = $e1
 
+crtcAddressRegister                                 = $fe00     ;
+crtcAddressWrite                                    = $fe01     ;
+
+userVIATimer2CounterHigh                            = $fe69     ; User VIA Timer 2 counter (high)
+
+userVIAAuxiliaryControlRegister                     = $fe6b     ; auxiliary control register
+
+; ***************************************************************************************
+;
+; User VIA, interrupt flag register ($FE6D)
+;
+; Writing:
+; To clear printer interrupts, clear bit 7 and set bit 1
+;
+; Reading:
+; bit 7 set means the current interrupt is from the User VIA
+; bit 1 set signifies a parallel printer interrupt.
+; (See .irq1CheckUserVIA)
+;
+; ***************************************************************************************
+userVIAInterruptFlagRegister                        = $fe6d     ; Interrupt flag register
+
+; ***************************************************************************************
+;
+; User VIA, interrupt enable register ($FE6E)
+;
+; Writing:
+; To disable printer interrupts, clear bit 7 and set bit 1
+; To  enable printer interrupts,   set bit 7 and set bit 1
+;
+; Reading:
+; bit 1 set signifies the printer interrupt is enabled.
+; bit 7 is always set when reading.
+; (See .irq1CheckUserVIA)
+; ***************************************************************************************
+userVIAInterruptEnableRegister                      = $fe6e     ; Interrupt enable register
+
 OSWRCH                                              = $ffee     ; for text, palette etc
 OSWORD                                              = $fff1     ; for sound effects and melody
 OSBYTE                                              = $fff4     ; *TAPE, keys, wait for VSYNC etc
@@ -162,7 +199,8 @@ player_rope_pixel                                   = $9f
 
 melody_active                                       = $028a
 melody_sound_pitch                                  = $0777
-sound_0_pitch                                       = $0884
+sound_definitions                                   = $0880
+sound_0_pitch                                       = sound_definitions + 4
 
 player_x_in_enemies                                 = $0a1b
 player_y_in_enemies                                 = $0a24
@@ -1023,9 +1061,9 @@ play_sound_number_a
     stx tmp_x                                       ;
     sty tmp_y                                       ;
     clc                                             ;
-    adc #$80                                        ;
+    adc #<sound_definitions                         ;
     tax                                             ;
-    ldy #8                                          ; $0880 + A
+    ldy #>sound_definitions                         ; sound_definitions + A
     lda #7                                          ; Generate a sound
     jsr OSWORD                                      ;
     ldx tmp_x                                       ;
@@ -1105,6 +1143,7 @@ bytes_to_copy_end
 
 copy_from
 !pseudopc $0400 {
+copy_to
 to_title_screen
     jmp title_screen                                ;
 
@@ -1289,12 +1328,12 @@ title_screen_logo
 ; [unused]
     sei                                             ;
 ; [unused code, corresponding to end of add_line_of_tiles]
-    sta scrolltext_address_high                     ; $06a3-$06ff is an [unused] copy of $13a3 to $13ff ;
+    sta scrolltext_address_high                     ; $06a3-$06ff is an [unused] copy of $13a3 to $13ff
     dec $74                                         ;
     bne --                                          ;
     lda $82                                         ;
     beq +                                           ;
-    jsr $13b1                                       ;
+    jsr $13b1                                       ; add_background_tile
 +
     rts                                             ;
 
@@ -1302,8 +1341,8 @@ title_screen_logo
     ldy tile_type                                   ;
     ldx background_tiles_colours,Y                  ;
     lda background_tiles_sprites,Y                  ;
-    jsr $1551                                       ;
-    jsr $1867                                       ; except this is $1878, set_tile_table_for_background ;
+    jsr $1551                                       ; plot_background_sprite
+    jsr $1867                                       ; except this is $1878, set_tile_table_for_background
     rts                                             ;
 
 ; [unused data, corresponding to directions tables]
@@ -1355,8 +1394,8 @@ event_routine
     pha                                             ;
     tya                                             ;
     pha                                             ;
-    lda #$32                                        ; Set timer 2 to 12800 ;
-    sta $fe69                                       ; User VIA Timer 2 latch/counter MSB
+    lda #$32                                        ; Set timer 2 to 12800
+    sta userVIATimer2CounterHigh                    ; User VIA Timer 2 latch/counter MSB
     lda melody_active                               ;
     bne play_melody                                 ;
     lda #1                                          ;
@@ -1374,8 +1413,8 @@ nonsense = * + 2
     lda melody_pitch_table,X                        ;
 nonsense3
     sta melody_sound_pitch                          ;
-    ldx #$73                                        ;
-    ldy #7                                          ; $0773 = melody_sound
+    ldx #<melody_sound                              ;
+    ldy #>melody_sound                              ; melody_sound
     lda #7                                          ; Generate a sound
     jsr OSWORD                                      ;
     inc note_number                                 ;
@@ -1396,8 +1435,8 @@ s_not_pressed
     lda #0                                          ;
     sta music_enabled                               ;
 play_silence
-    ldx #$7e                                        ;
-    ldy #7                                          ; $077e = sound_silence
+    ldx #<sound_silence                             ;
+    ldy #>sound_silence                             ; sound_silence
     lda #7                                          ; Generate a sound
     jsr OSWORD                                      ;
 q_not_pressed
@@ -1434,11 +1473,11 @@ irq_routine
     pha                                             ;
     tya                                             ;
     pha                                             ;
-    lda $fe6d                                       ; User VIA interrupt flag register
+    lda userVIAInterruptFlagRegister                ; User VIA interrupt flag register
     and #$a0                                        ;
     cmp #$a0                                        ;
     bne skip_increment                              ;
-    sta $fe6d                                       ; User VIA interrupt flag register
+    sta userVIAInterruptFlagRegister                ; User VIA interrupt flag register
     inc irq_counter                                 ;
 skip_increment
     pla                                             ;
@@ -1480,13 +1519,13 @@ copy_zero_page_values_loop                          ;
     ldx #0                                          ;
 move_memory_loop
     lda copy_from,X                                 ; Copy $4e00-$51ff to $0400-$07ff
-    sta $0400,X                                     ;
+    sta copy_to,X                                   ;
     lda copy_from + $0100,X                         ;
-    sta $0400 + $0100,X                             ;
+    sta copy_to   + $0100,X                         ;
     lda copy_from + $0200,X                         ;
-    sta $0400 + $0200,X                             ;
+    sta copy_to   + $0200,X                         ;
     lda copy_from + $0300,X                         ;
-    sta $0400 + $0300,X                             ;
+    sta copy_to   + $0300,X                         ;
 
     lda copy_to_sound_workspace,X                   ;  and $5300-$55ff to $0800-$0aff
     sta $0800,X                                     ;
@@ -1501,27 +1540,34 @@ move_memory_loop
     sta previous_irq2_vector_low                    ;
     lda irq2_vector_high                            ;
     sta previous_irq2_vector_high                   ;
-    lda #3                                          ;
+
+    lda #<to_irq_routine                            ;
     sta irq2_vector_low                             ;
-    lda #7                                          ; $0703 = to_irq_routine
+    lda #>to_irq_routine                            ;
     sta irq2_vector_high                            ;
-    lda #$a0                                        ; Enable timer 2 ;
-    sta $fe6e                                       ; User VIA Interrupt control register
+
+    lda #$a0                                        ; Enable timer 2
+    sta userVIAInterruptEnableRegister              ; User VIA Interrupt control register
     lda #0                                          ;
-    sta $fe6b                                       ; Auxiliary control register
-    lda #0                                          ;
+    sta userVIAAuxiliaryControlRegister             ; Auxiliary control register
+
+    lda #<to_event_routine                          ;
     sta event_interrupt_vector_low                  ;
-    lda #7                                          ; $0700 = to_event_routine
+    lda #>to_event_routine                          ;
     sta event_interrupt_vector_high                 ;
+
     ldx #4                                          ; vsync event
     lda #$0e                                        ; Enable Event
     jsr OSBYTE                                      ;
+
     lda #1                                          ;
     sta melody_active                               ;
-    lda #6                                          ; R6: Vertical displayed register ;
-    sta $fe00                                       ; Write to video controller (register number) ;
+
+    lda #6                                          ; R6: Vertical displayed register
+    sta crtcAddressRegister                         ; Write to video controller (register number)
     lda #$15                                        ;
-    sta $fe01                                       ; Write to video controller (register value) ;
+    sta crtcAddressWrite                            ; Write to video controller (register value)
+
     lda #<screen_address_lookup_table               ;
     sta os_row_multiplication_table_low             ;
     lda #>screen_address_lookup_table               ;
