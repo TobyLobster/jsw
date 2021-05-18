@@ -1,4 +1,11 @@
 ; $.JSW1   001100 001f90
+;
+; Reassembly by TobyLobster, 2021
+;
+; Based on the cassette version (http://www.level7.org.uk/miscellany/jet-set-willy-disassembly.txt)
+; but this file has been modified to assemble byte for byte identically to the SSD here:
+; http://www.bbcmicro.co.uk/game.php?id=439
+;
 
 ; variables
 life_y                                              = $4d
@@ -198,6 +205,7 @@ to_mark_enemies_that_overlap_player                 = $0b0c
 to_update_arrows                                    = $0b0f
 to_play_sound_number_a                              = $0b27
 to_collect_item                                     = $0b06
+
 
 *= $1100
 
