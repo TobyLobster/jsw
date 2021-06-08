@@ -248,8 +248,6 @@ to_initialise_room_background_tiles_and_title
 
 to_initialise_arrows
     jsr initialise_arrows                           ;
-
-to_handle_room_tweaks_on_entry                      ; [unused]
     jmp handle_room_tweaks_on_entry                 ;
 
 to_real_entry_point
